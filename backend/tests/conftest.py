@@ -12,7 +12,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db import get_session, make_session_factory
 from app.ingestion.pipeline import IngestionPipeline
-from app.models import Document  # noqa: F401 — registers table in SQLModel.metadata
+from app.models import Chunk, Document  # noqa: F401 — registers tables in SQLModel.metadata
+from app.providers.embeddings import StubEmbeddingProvider
 from app.storage.local import LocalBlobStore
 
 TEST_DB_URL = os.environ.get(
@@ -52,7 +53,6 @@ def sample_pdf_bytes() -> bytes:
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
-    # Derive admin URL (connect to postgres DB to run CREATE DATABASE)
     admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
     admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
     async with admin.connect() as conn:
@@ -121,10 +121,16 @@ async def async_client(
     from app.main import app
 
     sf = make_session_factory(test_engine)
-    pipeline = IngestionPipeline(session_factory=sf, blob_store=tmp_blob_store)
+    embedding_provider = StubEmbeddingProvider()
+    pipeline = IngestionPipeline(
+        session_factory=sf,
+        blob_store=tmp_blob_store,
+        embedding_provider=embedding_provider,
+    )
     app.state.blob_store = tmp_blob_store
     app.state.pipeline = pipeline
     app.state.session_factory = sf
+    app.state.embedding_provider = embedding_provider
 
     async def _override_session():
         async with AsyncSession(test_engine, expire_on_commit=False) as session:

@@ -44,3 +44,39 @@ class DocumentContentResponse(BaseModel):
     document_id: UUID
     content: str
     detected_language: str | None
+
+
+class ChunkRead(BaseModel):
+    id: UUID
+    document_id: UUID
+    chunk_index: int
+    text: str
+    token_count: int
+    embedding_model: str | None
+    meta: dict
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = 10
+    document_ids: list[UUID] | None = None
+    file_category: str | None = None
+
+
+class SearchHit(BaseModel):
+    chunk_id: UUID
+    document_id: UUID
+    filename: str
+    chunk_index: int
+    text: str
+    score: float
+    token_count: int
+
+
+class SearchResponse(BaseModel):
+    hits: list[SearchHit]
+    query: str
+    embedding_model: str

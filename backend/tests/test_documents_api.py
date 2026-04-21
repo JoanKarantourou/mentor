@@ -3,7 +3,6 @@
 import asyncio
 from pathlib import Path
 
-import pytest
 from httpx import AsyncClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -28,7 +27,7 @@ async def _wait_ready(client: AsyncClient, doc_id: str, retries: int = 30) -> di
     for _ in range(retries):
         r = await client.get(f"/documents/{doc_id}")
         assert r.status_code == 200
-        if r.json()["status"] in ("ready", "failed"):
+        if r.json()["status"] in ("indexed", "failed"):
             return r.json()
         await asyncio.sleep(0.1)
     raise TimeoutError(f"Document {doc_id} did not finish processing")
@@ -54,7 +53,7 @@ async def test_upload_returns_202_with_id(async_client: AsyncClient) -> None:
 async def test_markdown_reaches_ready(async_client: AsyncClient) -> None:
     doc_id = await _upload(async_client, "sample.md", "text/markdown")
     doc = await _wait_ready(async_client, doc_id)
-    assert doc["status"] == "ready"
+    assert doc["status"] == "indexed"
     assert doc["detected_language"] == "en"
     assert doc["file_category"] == "document"
 
@@ -62,14 +61,14 @@ async def test_markdown_reaches_ready(async_client: AsyncClient) -> None:
 async def test_python_file_is_code(async_client: AsyncClient) -> None:
     doc_id = await _upload(async_client, "sample.py", "text/x-python")
     doc = await _wait_ready(async_client, doc_id)
-    assert doc["status"] == "ready"
+    assert doc["status"] == "indexed"
     assert doc["file_category"] == "code"
 
 
 async def test_greek_content_detected(async_client: AsyncClient) -> None:
     doc_id = await _upload(async_client, "sample_greek.txt", "text/plain")
     doc = await _wait_ready(async_client, doc_id)
-    assert doc["status"] == "ready"
+    assert doc["status"] == "indexed"
     assert doc["detected_language"] == "el"
 
 
@@ -83,7 +82,7 @@ async def test_real_pdf_reaches_ready(
     assert resp.status_code == 202
     doc_id = resp.json()["document_id"]
     doc = await _wait_ready(async_client, doc_id)
-    assert doc["status"] == "ready"
+    assert doc["status"] == "indexed"
     assert doc["detected_language"] == "en"
     assert doc["file_category"] == "document"
 

@@ -6,11 +6,13 @@ from uuid import UUID
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.ingestion.categorizer import categorize
+from app.ingestion.embedding import embed_chunks
 from app.ingestion.language import detect_language
 from app.ingestion.normalizer import normalize
 from app.ingestion.parsers.code_parser import CodeParser
 from app.ingestion.parsers.document_parser import DocumentParser
 from app.models.document import Document
+from app.providers.embeddings import EmbeddingProvider
 from app.storage.base import BlobStore
 
 logger = logging.getLogger(__name__)
@@ -21,9 +23,11 @@ class IngestionPipeline:
         self,
         session_factory: Callable[[], AsyncSession],
         blob_store: BlobStore,
+        embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self._sf = session_factory
         self._blob = blob_store
+        self._embedder = embedding_provider
 
     async def run(self, document_id: UUID) -> None:
         log = logger.getChild(str(document_id)[:8])
@@ -31,7 +35,6 @@ class IngestionPipeline:
         try:
             await self._set_status(document_id, "processing")
 
-            # Load doc metadata (separate session, short-lived)
             async with self._sf() as session:
                 doc = await session.get(Document, document_id)
                 if doc is None:
@@ -41,17 +44,14 @@ class IngestionPipeline:
                 filename = doc.filename
                 content_type = doc.content_type
 
-            # Fetch bytes outside any DB session
             data = await self._blob.get(blob_path)
 
-            # Process
             file_category = categorize(filename, content_type)
             parser = CodeParser() if file_category == "code" else DocumentParser()
             parsed = await parser.parse(data, filename)
             detected_lang = detect_language(parsed.text)
             normalized = normalize(parsed, file_category, filename)
 
-            # Persist results
             async with self._sf() as session:
                 doc = await session.get(Document, document_id)
                 if doc is None:
@@ -62,10 +62,20 @@ class IngestionPipeline:
                 doc.status = "ready"
                 await session.commit()
 
-            log.info(
-                "document_id=%s status=ready language=%s category=%s",
-                document_id, detected_lang, file_category,
-            )
+            if self._embedder is not None:
+                await self._set_status(document_id, "chunking")
+                await self._set_status(document_id, "embedding")
+                await embed_chunks(document_id, self._sf, self._embedder)
+                await self._set_status(document_id, "indexed")
+                log.info(
+                    "document_id=%s status=indexed language=%s category=%s",
+                    document_id, detected_lang, file_category,
+                )
+            else:
+                log.info(
+                    "document_id=%s status=ready language=%s category=%s",
+                    document_id, detected_lang, file_category,
+                )
 
         except Exception as exc:
             log.error(

@@ -5,8 +5,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.schemas import DocumentContentResponse, DocumentListItem, DocumentRead, UploadResponse
+from app.api.schemas import (
+    ChunkRead,
+    DocumentContentResponse,
+    DocumentListItem,
+    DocumentRead,
+    UploadResponse,
+)
 from app.db import get_session
+from app.models.chunk import Chunk
 from app.models.document import Document
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -84,7 +91,7 @@ async def get_document_content(
     doc = await session.get(Document, document_id)
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.status != "ready":
+    if doc.status not in ("ready", "chunking", "embedding", "indexed"):
         raise HTTPException(
             status_code=409,
             detail=f"Document not ready (status: {doc.status})",
@@ -94,6 +101,28 @@ async def get_document_content(
         content=doc.normalized_content or "",
         detected_language=doc.detected_language,
     )
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkRead])
+async def get_document_chunks(
+    document_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> list[ChunkRead]:
+    doc = await session.get(Document, document_id)
+    if doc is None or doc.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status != "indexed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document not indexed (status: {doc.status})",
+        )
+    stmt = (
+        select(Chunk)
+        .where(Chunk.document_id == document_id)
+        .order_by(Chunk.chunk_index)
+    )
+    results = await session.exec(stmt)
+    return [ChunkRead.model_validate(c) for c in results.all()]
 
 
 @router.delete("/{document_id}", status_code=204)

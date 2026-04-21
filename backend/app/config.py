@@ -15,5 +15,9 @@ class Settings(BaseSettings):
 
     TEST_DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@db:5432/mentor_test"
 
+    CHUNK_TARGET_TOKENS: int = 512
+    CHUNK_OVERLAP_TOKENS: int = 64
+    EMBEDDING_BATCH_SIZE: int = 50
+
 
 settings = Settings()

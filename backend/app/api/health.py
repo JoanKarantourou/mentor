@@ -11,10 +11,12 @@ router = APIRouter()
 async def health(request: Request) -> dict:
     db_status = await _check_db()
     blob_status = await _check_blob_store(request)
+    vector_index_status = await _check_vector_index()
     return {
         "status": "ok",
         "database": db_status,
         "blob_store": blob_status,
+        "vector_index": vector_index_status,
         "llm_provider": settings.LLM_PROVIDER,
         "embedding_provider": settings.EMBEDDING_PROVIDER,
     }
@@ -37,5 +39,19 @@ async def _check_blob_store(request: Request) -> str:
         await blob_store.put("_health/ping", b"ok", "text/plain")
         data = await blob_store.get("_health/ping")
         return "ok" if data == b"ok" else "error"
+    except Exception:
+        return "error"
+
+
+async def _check_vector_index() -> str:
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT 1 FROM pg_indexes "
+                    "WHERE tablename = 'chunks' AND indexname = 'ix_chunks_embedding_hnsw'"
+                )
+            )
+            return "ok" if result.first() else "missing"
     except Exception:
         return "error"

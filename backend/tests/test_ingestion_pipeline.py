@@ -13,6 +13,7 @@ from app.ingestion.categorizer import categorize
 from app.ingestion.language import detect_language
 from app.ingestion.pipeline import IngestionPipeline
 from app.models.document import Document
+from app.providers.embeddings import StubEmbeddingProvider
 from app.storage.local import LocalBlobStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -53,6 +54,7 @@ def pipeline(test_engine: AsyncEngine, tmp_blob_store: LocalBlobStore) -> Ingest
     return IngestionPipeline(
         session_factory=make_session_factory(test_engine),
         blob_store=tmp_blob_store,
+        embedding_provider=StubEmbeddingProvider(),
     )
 
 
@@ -117,7 +119,7 @@ async def test_markdown_pipeline_reaches_ready(
     async with AsyncSession(test_engine) as session:
         updated = await session.get(Document, doc.id)
 
-    assert updated.status == "ready"
+    assert updated.status == "indexed"
     assert updated.normalized_content
     assert updated.detected_language == "en"
     assert updated.file_category == "document"
@@ -137,7 +139,7 @@ async def test_python_file_is_categorized_as_code(
     async with AsyncSession(test_engine) as session:
         updated = await session.get(Document, doc.id)
 
-    assert updated.status == "ready"
+    assert updated.status == "indexed"
     assert updated.file_category == "code"
     # Normalized content must be a fenced code block
     assert updated.normalized_content.startswith("```")
@@ -157,7 +159,7 @@ async def test_greek_text_language_detected(
     async with AsyncSession(test_engine) as session:
         updated = await session.get(Document, doc.id)
 
-    assert updated.status == "ready"
+    assert updated.status == "indexed"
     assert updated.detected_language == "el"
 
 
@@ -210,4 +212,4 @@ async def test_status_transitions_through_processing(
 
     async with AsyncSession(test_engine) as session:
         updated = await session.get(Document, doc.id)
-    assert updated.status == "ready"
+    assert updated.status == "indexed"
