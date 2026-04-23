@@ -19,6 +19,8 @@ dependencies = [
     "tree-sitter-languages==1.10.2",
     "tiktoken>=0.8.0",
     "markdown-it-py>=3.0.0",
+    "openai>=1.40",
+    "tenacity>=8",
 ]
 
 [project.optional-dependencies]

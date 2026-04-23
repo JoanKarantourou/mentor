@@ -1,6 +1,6 @@
-# mentor — backend
+# Mentor — backend
 
-FastAPI backend for the mentor RAG assistant.
+FastAPI backend for the Mentor RAG assistant.
 
 ## Running locally (Docker)
 
@@ -27,6 +27,15 @@ curl http://localhost:8000/documents
 # Soft-delete
 curl -X DELETE http://localhost:8000/documents/<id>
 ```
+
+## Providers
+
+| Variable | Default | Options |
+|----------|---------|---------|
+| `EMBEDDING_PROVIDER` | `stub` | `stub`, `azure_openai` |
+| `LLM_PROVIDER` | `stub` | `stub` (more coming in Stage 5) |
+
+The stub providers require no credentials and are the default for local development.
 
 ## Migrations
 
@@ -57,10 +66,10 @@ docker compose exec backend ruff check .
 docker compose exec backend ruff format --check .
 ```
 
-## Known limitations (Stage 2)
+## Known limitations
 
-- No chunking or vector embeddings (Stage 3).
-- No authentication — `uploaded_by` is hardcoded to `"dev"` (Stage 7).
-- No chat or retrieval (Stage 5+).
+- No LLM chat or retrieval (Stage 5).
+- No authentication — `uploaded_by` is hardcoded to `"dev"` (deferred).
+- Direct OpenAI and Anthropic providers not yet implemented (Stage 5).
 - Azure Blob Storage adapter not yet implemented (only `LocalBlobStore`).
 - Language detection supports English and Greek. Adding more languages is a one-line change in `language.py`.

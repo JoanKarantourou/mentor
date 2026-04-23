@@ -66,11 +66,22 @@ class IngestionPipeline:
                 await self._set_status(document_id, "chunking")
                 await self._set_status(document_id, "embedding")
                 await embed_chunks(document_id, self._sf, self._embedder)
-                await self._set_status(document_id, "indexed")
-                log.info(
-                    "document_id=%s status=indexed language=%s category=%s",
-                    document_id, detected_lang, file_category,
-                )
+                # embed_chunks may have set status=failed on error — only advance if not.
+                async with self._sf() as session:
+                    current = await session.get(Document, document_id)
+                    if current is not None and current.status != "failed":
+                        current.status = "indexed"
+                        await session.commit()
+                        log.info(
+                            "document_id=%s status=indexed language=%s category=%s",
+                            document_id, detected_lang, file_category,
+                        )
+                    else:
+                        log.warning(
+                            "document_id=%s embedding failed, status=%s",
+                            document_id,
+                            current.status if current else "unknown",
+                        )
             else:
                 log.info(
                     "document_id=%s status=ready language=%s category=%s",

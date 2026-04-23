@@ -3,8 +3,6 @@ import math
 import random
 from abc import ABC, abstractmethod
 
-from app.config import settings
-
 _STUB_DIMENSION = 1536
 
 
@@ -33,9 +31,22 @@ class StubEmbeddingProvider(EmbeddingProvider):
         return vectors
 
 
-def get_embedding_provider() -> EmbeddingProvider:
+def get_embedding_provider(settings=None) -> EmbeddingProvider:
+    if settings is None:
+        from app.config import settings as _settings
+        settings = _settings
     match settings.EMBEDDING_PROVIDER:
         case "stub":
             return StubEmbeddingProvider()
+        case "azure_openai":
+            from app.providers.azure_openai_embeddings import AzureOpenAIEmbeddingProvider
+
+            return AzureOpenAIEmbeddingProvider(
+                endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                api_key=settings.AZURE_OPENAI_API_KEY.get_secret_value(),
+                deployment=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+                api_version=settings.AZURE_OPENAI_API_VERSION,
+                max_retries=settings.EMBEDDING_MAX_RETRIES,
+            )
         case _:
             raise ValueError(f"Unknown embedding provider: {settings.EMBEDDING_PROVIDER!r}")
