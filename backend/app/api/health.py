@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from sqlalchemy import text
 
 from app.db import engine
+from app.providers.llm import ChatMessage
 
 router = APIRouter()
 
@@ -14,12 +15,14 @@ async def health(request: Request) -> dict:
     blob_status = await _check_blob_store(request)
     vector_index_status = await _check_vector_index()
     embedding_status = await _check_embedding_provider(request)
+    llm_status = await _check_llm_provider(request)
     return {
         "status": "ok",
         "database": db_status,
         "blob_store": blob_status,
         "vector_index": vector_index_status,
         "embedding_provider": embedding_status,
+        "llm_provider": llm_status,
     }
 
 
@@ -67,6 +70,25 @@ async def _check_embedding_provider(request: Request) -> str:
     try:
         async with asyncio.timeout(5.0):
             await provider.embed(["healthcheck"])
+        return "ok"
+    except Exception as exc:
+        brief = str(exc)[:120]
+        return f"error: {brief}"
+
+
+async def _check_llm_provider(request: Request) -> str:
+    provider = getattr(request.app.state, "llm_provider", None)
+    if provider is None:
+        return "not configured"
+    if provider.identifier == "stub-llm-v1":
+        return "stub"
+    try:
+        async with asyncio.timeout(10.0):
+            await provider.generate(
+                messages=[ChatMessage(role="user", content="ping")],
+                system_prompt="Reply with one word.",
+                max_tokens=5,
+            )
         return "ok"
     except Exception as exc:
         brief = str(exc)[:120]

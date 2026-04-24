@@ -1,4 +1,6 @@
-from app.models.chunk import Chunk  # noqa: F401 — registers table in SQLModel.metadata
-from app.models.document import Document  # noqa: F401 — registers table in SQLModel.metadata
+from app.models.chunk import Chunk  # noqa: F401
+from app.models.conversation import Conversation  # noqa: F401
+from app.models.document import Document  # noqa: F401
+from app.models.message import Message  # noqa: F401
 
-__all__ = ["Chunk", "Document"]
+__all__ = ["Chunk", "Conversation", "Document", "Message"]

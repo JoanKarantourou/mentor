@@ -21,6 +21,25 @@ class Settings(BaseSettings):
     EMBEDDING_BATCH_SIZE: int = 50
     EMBEDDING_MAX_RETRIES: int = 5
 
+    # OpenAI (direct API — embeddings)
+    OPENAI_API_KEY: SecretStr | None = None
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    # Anthropic (chat / generation)
+    ANTHROPIC_API_KEY: SecretStr | None = None
+    ANTHROPIC_DEFAULT_MODEL: str = "claude-haiku-4-5"
+    ANTHROPIC_STRONG_MODEL: str = "claude-sonnet-4-5"
+
+    # Retrieval / confidence
+    RETRIEVAL_TOP_K: int = 8
+    RETRIEVAL_MIN_TOP_SIMILARITY: float = 0.25
+    RETRIEVAL_MIN_AVG_SIMILARITY: float = 0.20
+    RETRIEVAL_AVG_WINDOW: int = 5
+
+    # Chat
+    CHAT_MAX_CONTEXT_CHUNKS: int = 8
+    CHAT_MAX_OUTPUT_TOKENS: int = 2048
+
     # Azure OpenAI — embeddings
     AZURE_OPENAI_ENDPOINT: str | None = None
     AZURE_OPENAI_API_KEY: SecretStr | None = None
@@ -28,7 +47,13 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str = "2024-02-01"
 
     @model_validator(mode="after")
-    def _require_azure_openai_fields(self) -> "Settings":
+    def _require_provider_credentials(self) -> "Settings":
+        if self.LLM_PROVIDER == "anthropic":
+            if self.ANTHROPIC_API_KEY is None:
+                raise ValueError("LLM_PROVIDER=anthropic requires: ANTHROPIC_API_KEY")
+        if self.EMBEDDING_PROVIDER == "openai":
+            if self.OPENAI_API_KEY is None:
+                raise ValueError("EMBEDDING_PROVIDER=openai requires: OPENAI_API_KEY")
         if self.EMBEDDING_PROVIDER == "azure_openai":
             missing = [
                 name

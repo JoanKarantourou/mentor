@@ -38,6 +38,14 @@ def get_embedding_provider(settings=None) -> EmbeddingProvider:
     match settings.EMBEDDING_PROVIDER:
         case "stub":
             return StubEmbeddingProvider()
+        case "openai":
+            from app.providers.openai_embeddings import OpenAIEmbeddingProvider
+
+            return OpenAIEmbeddingProvider(
+                api_key=settings.OPENAI_API_KEY.get_secret_value(),
+                model=settings.OPENAI_EMBEDDING_MODEL,
+                max_retries=settings.EMBEDDING_MAX_RETRIES,
+            )
         case "azure_openai":
             from app.providers.azure_openai_embeddings import AzureOpenAIEmbeddingProvider
 

@@ -12,8 +12,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db import get_session, make_session_factory
 from app.ingestion.pipeline import IngestionPipeline
-from app.models import Chunk, Document  # noqa: F401 — registers tables in SQLModel.metadata
+from app.models import Chunk, Conversation, Document, Message  # noqa: F401
 from app.providers.embeddings import StubEmbeddingProvider
+from app.providers.llm import StubLLMProvider
 from app.storage.local import LocalBlobStore
 
 TEST_DB_URL = os.environ.get(
@@ -46,11 +47,6 @@ def sample_pdf_bytes() -> bytes:
     return bytes(pdf.output())
 
 
-# ---------------------------------------------------------------------------
-# Session-scoped: create the test database and schema once per pytest session
-# ---------------------------------------------------------------------------
-
-
 @pytest_asyncio.fixture(scope="session")
 async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
     admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
@@ -75,21 +71,11 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
     await eng.dispose()
 
 
-# ---------------------------------------------------------------------------
-# Function-scoped: truncate tables between tests for isolation
-# ---------------------------------------------------------------------------
-
-
 @pytest_asyncio.fixture(autouse=True)
 async def clean_tables(test_engine: AsyncEngine) -> AsyncGenerator[None, None]:
     yield
     async with test_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE TABLE documents CASCADE"))
-
-
-# ---------------------------------------------------------------------------
-# Per-test DB session
-# ---------------------------------------------------------------------------
+        await conn.execute(text("TRUNCATE TABLE documents, conversations CASCADE"))
 
 
 @pytest_asyncio.fixture
@@ -98,19 +84,9 @@ async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, N
         yield session
 
 
-# ---------------------------------------------------------------------------
-# Per-test blob store backed by pytest tmp_path
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def tmp_blob_store(tmp_path: Path) -> LocalBlobStore:
     return LocalBlobStore(root=tmp_path / "blobs")
-
-
-# ---------------------------------------------------------------------------
-# HTTP test client with overridden state and dependencies
-# ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture
@@ -118,10 +94,12 @@ async def async_client(
     test_engine: AsyncEngine,
     tmp_blob_store: LocalBlobStore,
 ) -> AsyncGenerator[AsyncClient, None]:
+    from app.config import settings
     from app.main import app
 
     sf = make_session_factory(test_engine)
     embedding_provider = StubEmbeddingProvider()
+    llm_provider = StubLLMProvider()
     pipeline = IngestionPipeline(
         session_factory=sf,
         blob_store=tmp_blob_store,
@@ -131,6 +109,15 @@ async def async_client(
     app.state.pipeline = pipeline
     app.state.session_factory = sf
     app.state.embedding_provider = embedding_provider
+    app.state.llm_provider = llm_provider
+    app.state.chat_config = {
+        "top_k": settings.RETRIEVAL_TOP_K,
+        "min_top_similarity": settings.RETRIEVAL_MIN_TOP_SIMILARITY,
+        "min_avg_similarity": settings.RETRIEVAL_MIN_AVG_SIMILARITY,
+        "avg_window": settings.RETRIEVAL_AVG_WINDOW,
+        "max_context_chunks": settings.CHAT_MAX_CONTEXT_CHUNKS,
+        "max_output_tokens": settings.CHAT_MAX_OUTPUT_TOKENS,
+    }
 
     async def _override_session():
         async with AsyncSession(test_engine, expire_on_commit=False) as session:
