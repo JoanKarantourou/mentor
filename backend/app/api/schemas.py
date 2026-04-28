@@ -21,6 +21,8 @@ class DocumentRead(BaseModel):
     error_message: str | None
     uploaded_by: str
     scope: str
+    source_type: str
+    source_conversation_id: UUID | None
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -35,6 +37,8 @@ class DocumentListItem(BaseModel):
     file_category: str
     detected_language: str | None
     size_bytes: int
+    source_type: str
+    source_conversation_id: UUID | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

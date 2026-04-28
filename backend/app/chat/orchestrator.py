@@ -101,6 +101,21 @@ class ErrorEvent:
 
 
 @dataclass
+class GapAnalysisEvent:
+    missing_topic: str
+    related_topics_present: list[str]
+    suggested_document_types: list[str]
+    related_document_ids: list[str]  # UUIDs as strings
+
+
+@dataclass
+class MemorySuggestionEvent:
+    should_suggest: bool
+    reason: str  # "long_conversation" | "topic_shift" | "session_break"
+    preview_count: int
+
+
+@dataclass
 class DoneEvent:
     pass
 
@@ -113,6 +128,8 @@ ChatEvent = (
     | TokenEvent
     | SourcesEvent
     | MessagePersistedEvent
+    | GapAnalysisEvent
+    | MemorySuggestionEvent
     | ErrorEvent
     | DoneEvent
 )
@@ -225,6 +242,10 @@ async def run_chat_turn(
     max_context_chunks: int = 8,
     max_output_tokens: int = 2048,
     web_search_max_results: int = 5,
+    gap_analysis_enabled: bool = True,
+    memory_extraction_min_messages: int = 12,
+    memory_extraction_topic_shift_threshold: float = 0.5,
+    memory_extraction_session_break_minutes: int = 30,
 ) -> AsyncGenerator[ChatEvent, None]:
     # 1. Get or create conversation
     async with session_factory() as session:
@@ -319,7 +340,38 @@ async def run_chat_turn(
             await session.commit()
             await session.refresh(asst_msg)
 
-        yield SourcesEvent(sources=[])
+        # Gap analysis — run after persisting so the user sees the refusal text quickly
+        if gap_analysis_enabled:
+            try:
+                from app.curation.gap_analyzer import analyze_gap
+                gap = await analyze_gap(
+                    user_query=input.user_message,
+                    retrieved_chunks=chunks,
+                    session_factory=session_factory,
+                    llm_provider=llm_provider,
+                )
+                if gap is not None:
+                    yield GapAnalysisEvent(
+                        missing_topic=gap.missing_topic,
+                        related_topics_present=gap.related_topics_present,
+                        suggested_document_types=gap.suggested_document_types,
+                        related_document_ids=[str(d) for d in gap.related_document_ids],
+                    )
+            except Exception as exc:
+                logger.warning("gap analysis error (non-fatal): %s", exc)
+
+        # Emit closest chunks as sources even on low-confidence path
+        low_conf_sources = [
+            SourceInfo(
+                chunk_id=c.chunk_id,
+                document_id=c.document_id,
+                filename=c.filename,
+                text_preview=c.text[:200],
+                score=c.score,
+            )
+            for c in chunks[:3]
+        ]
+        yield SourcesEvent(sources=low_conf_sources)
         yield MessagePersistedEvent(
             conversation_id=conversation_id,
             assistant_message_id=asst_msg.id,
@@ -437,4 +489,26 @@ async def run_chat_turn(
         conversation_id=conversation_id,
         assistant_message_id=asst_msg.id,
     )
+
+    # Memory suggestion — check after message is persisted
+    try:
+        from app.curation.triggers import check_memory_trigger
+        trigger = await check_memory_trigger(
+            conversation_id=conversation_id,
+            current_user_message=input.user_message,
+            session_factory=session_factory,
+            embedding_provider=embedding_provider,
+            min_messages=memory_extraction_min_messages,
+            topic_shift_threshold=memory_extraction_topic_shift_threshold,
+            session_break_minutes=memory_extraction_session_break_minutes,
+        )
+        if trigger.should_suggest:
+            yield MemorySuggestionEvent(
+                should_suggest=True,
+                reason=trigger.reason or "long_conversation",
+                preview_count=trigger.preview_count,
+            )
+    except Exception as exc:
+        logger.warning("memory trigger check error (non-fatal): %s", exc)
+
     yield DoneEvent()

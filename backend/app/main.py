@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
 from app.api.chat import router as chat_router
+from app.api.curation import router as curation_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.search import router as search_router
@@ -36,6 +37,9 @@ async def lifespan(app: FastAPI):
         session_factory=sf,
         blob_store=blob_store,
         embedding_provider=embedding_provider,
+        duplicate_detection_enabled=settings.DUPLICATE_DETECTION_ENABLED,
+        duplicate_near_threshold=settings.DUPLICATE_NEAR_THRESHOLD,
+        duplicate_match_ratio=settings.DUPLICATE_MATCH_RATIO,
     )
     app.state.chat_config = {
         "top_k": settings.RETRIEVAL_TOP_K,
@@ -45,6 +49,10 @@ async def lifespan(app: FastAPI):
         "max_context_chunks": settings.CHAT_MAX_CONTEXT_CHUNKS,
         "max_output_tokens": settings.CHAT_MAX_OUTPUT_TOKENS,
         "web_search_max_results": settings.WEB_SEARCH_MAX_RESULTS,
+        "gap_analysis_enabled": settings.GAP_ANALYSIS_ENABLED,
+        "memory_extraction_min_messages": settings.MEMORY_EXTRACTION_MIN_MESSAGES,
+        "memory_extraction_topic_shift_threshold": settings.MEMORY_EXTRACTION_TOPIC_SHIFT_THRESHOLD,
+        "memory_extraction_session_break_minutes": settings.MEMORY_EXTRACTION_SESSION_BREAK_MINUTES,
     }
     yield
 
@@ -63,3 +71,4 @@ app.include_router(documents_router)
 app.include_router(search_router)
 app.include_router(admin_router)
 app.include_router(chat_router)
+app.include_router(curation_router)

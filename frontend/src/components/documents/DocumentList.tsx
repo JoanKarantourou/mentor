@@ -6,12 +6,14 @@ interface DocumentListProps {
   documents: DocItem[];
   loading: boolean;
   onDelete: (id: string) => void;
+  onRefresh?: () => void;
 }
 
 export function DocumentList({
   documents,
   loading,
   onDelete,
+  onRefresh,
 }: DocumentListProps) {
   if (loading) {
     return (
@@ -34,7 +36,7 @@ export function DocumentList({
   return (
     <div className="space-y-2">
       {documents.map((doc) => (
-        <DocumentListItem key={doc.id} doc={doc} onDelete={onDelete} />
+        <DocumentListItem key={doc.id} doc={doc} onDelete={onDelete} onRefresh={onRefresh} />
       ))}
     </div>
   );

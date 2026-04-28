@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageInput } from "@/components/chat/MessageInput";
+import { MemorySuggestionBanner } from "@/components/chat/MemorySuggestionBanner";
+import { MemoryPreviewDialog } from "@/components/chat/MemoryPreviewDialog";
 import { useChat } from "@/hooks/useChat";
 import { toast } from "@/components/ui/toaster";
 import type { ModelTier } from "@/lib/api/types";
@@ -13,8 +15,19 @@ export default function ConversationPage({
   params: { id: string };
 }) {
   const { id } = params;
-  const { messages, isStreaming, loading, error, sendMessage, sendWithWebSearch, regenerate } =
-    useChat(id);
+  const {
+    messages,
+    isStreaming,
+    loading,
+    error,
+    sendMessage,
+    sendWithWebSearch,
+    regenerate,
+    memorySuggestion,
+    dismissMemorySuggestion,
+  } = useChat(id);
+
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (error) {
@@ -34,6 +47,11 @@ export default function ConversationPage({
     await sendWithWebSearch(text, tier);
   }
 
+  function handleMemorySaved(documentId: string) {
+    toast.success("Notes saved", "Conversation notes added to your knowledge base.");
+    dismissMemorySuggestion();
+  }
+
   return (
     <>
       <MessageList
@@ -42,8 +60,18 @@ export default function ConversationPage({
         isStreaming={isStreaming}
         onRegenerate={regenerate}
         onTryWithWebSearch={handleTryWithWebSearch}
+        memorySuggestion={memorySuggestion}
+        conversationId={id}
+        onDismissMemorySuggestion={dismissMemorySuggestion}
+        onPreviewMemory={() => setPreviewOpen(true)}
       />
       <MessageInput onSend={handleSend} disabled={isStreaming} />
+      <MemoryPreviewDialog
+        open={previewOpen}
+        conversationId={id}
+        onClose={() => setPreviewOpen(false)}
+        onSaved={handleMemorySaved}
+      />
     </>
   );
 }

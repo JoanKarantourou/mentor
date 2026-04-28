@@ -14,6 +14,8 @@ from app.chat.orchestrator import (
     ConfidenceEvent,
     DoneEvent,
     ErrorEvent,
+    GapAnalysisEvent,
+    MemorySuggestionEvent,
     MessagePersistedEvent,
     RetrievalEvent,
     SourcesEvent,
@@ -151,6 +153,19 @@ def _serialize_event(event) -> str | None:
         }))
     elif isinstance(event, ErrorEvent):
         return _sse("error", json.dumps({"message": event.message}))
+    elif isinstance(event, GapAnalysisEvent):
+        return _sse("gap_analysis", json.dumps({
+            "missing_topic": event.missing_topic,
+            "related_topics_present": event.related_topics_present,
+            "suggested_document_types": event.suggested_document_types,
+            "related_document_ids": event.related_document_ids,
+        }))
+    elif isinstance(event, MemorySuggestionEvent):
+        return _sse("memory_suggestion", json.dumps({
+            "should_suggest": event.should_suggest,
+            "reason": event.reason,
+            "preview_count": event.preview_count,
+        }))
     elif isinstance(event, DoneEvent):
         return _sse("done", "")
     return None

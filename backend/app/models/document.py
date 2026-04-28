@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 
@@ -20,13 +21,24 @@ class Document(SQLModel, table=True):
     )
     detected_language: str | None = Field(default=None, max_length=10)
     file_category: str = Field(default="document", max_length=20)
-    status: str = Field(default="pending", max_length=20)
+    status: str = Field(default="pending", max_length=30)
     error_message: str | None = Field(
         default=None,
         sa_column=sa.Column(sa.Text, nullable=True),
     )
     uploaded_by: str = Field(default="dev", max_length=255)
     scope: str = Field(default="private", max_length=20)
+
+    # Stage 8: curation metadata
+    source_type: str = Field(default="upload", max_length=20)
+    source_conversation_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.UUID(as_uuid=True), nullable=True),
+    )
+    duplicate_check: dict | None = Field(
+        default=None,
+        sa_column=sa.Column(JSONB, nullable=True),
+    )
 
     deleted_at: datetime | None = Field(
         default=None,

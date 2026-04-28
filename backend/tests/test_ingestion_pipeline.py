@@ -55,6 +55,7 @@ def pipeline(test_engine: AsyncEngine, tmp_blob_store: LocalBlobStore) -> Ingest
         session_factory=make_session_factory(test_engine),
         blob_store=tmp_blob_store,
         embedding_provider=StubEmbeddingProvider(),
+        duplicate_detection_enabled=False,
     )
 
 

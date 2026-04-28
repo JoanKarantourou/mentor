@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { Message } from "./Message";
+import { MemorySuggestionBanner } from "./MemorySuggestionBanner";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { LocalMessage, ModelTier } from "@/lib/api/types";
+import type { LocalMessage, MemorySuggestion, ModelTier } from "@/lib/api/types";
 
 interface MessageListProps {
   messages: LocalMessage[];
@@ -11,6 +12,10 @@ interface MessageListProps {
   isStreaming: boolean;
   onRegenerate: (serverId: string, localId: string) => void;
   onTryWithWebSearch?: (text: string, tier: ModelTier) => void;
+  memorySuggestion?: MemorySuggestion | null;
+  conversationId?: string;
+  onDismissMemorySuggestion?: () => void;
+  onPreviewMemory?: () => void;
 }
 
 export function MessageList({
@@ -19,6 +24,10 @@ export function MessageList({
   isStreaming,
   onRegenerate,
   onTryWithWebSearch,
+  memorySuggestion,
+  conversationId,
+  onDismissMemorySuggestion,
+  onPreviewMemory,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -84,6 +93,14 @@ export function MessageList({
             isStreaming={isStreaming}
           />
         ))}
+        {memorySuggestion && conversationId && onDismissMemorySuggestion && onPreviewMemory && (
+          <MemorySuggestionBanner
+            suggestion={memorySuggestion}
+            conversationId={conversationId}
+            onDismiss={onDismissMemorySuggestion}
+            onPreview={onPreviewMemory}
+          />
+        )}
       </div>
       <div ref={bottomRef} />
     </div>

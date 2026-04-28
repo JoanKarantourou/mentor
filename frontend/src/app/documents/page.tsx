@@ -73,6 +73,7 @@ export default function DocumentsPage() {
               documents={documents}
               loading={loading}
               onDelete={handleDelete}
+              onRefresh={refresh}
             />
           </section>
         </div>

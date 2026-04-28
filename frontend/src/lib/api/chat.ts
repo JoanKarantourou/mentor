@@ -109,6 +109,16 @@ export async function* sendMessage(
         yield { type: "message_persisted", ...parsed };
         break;
       }
+      case "gap_analysis": {
+        const parsed = JSON.parse(data);
+        yield { type: "gap_analysis", ...parsed };
+        break;
+      }
+      case "memory_suggestion": {
+        const parsed = JSON.parse(data);
+        yield { type: "memory_suggestion", ...parsed };
+        break;
+      }
       case "error": {
         const parsed = JSON.parse(data);
         yield { type: "error", message: parsed.message };
@@ -178,6 +188,16 @@ export async function* regenerateMessage(
       case "message_persisted": {
         const parsed = JSON.parse(data);
         yield { type: "message_persisted", ...parsed };
+        break;
+      }
+      case "gap_analysis": {
+        const parsed = JSON.parse(data);
+        yield { type: "gap_analysis", ...parsed };
+        break;
+      }
+      case "memory_suggestion": {
+        const parsed = JSON.parse(data);
+        yield { type: "memory_suggestion", ...parsed };
         break;
       }
       case "error": {

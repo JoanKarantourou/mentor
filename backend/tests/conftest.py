@@ -106,6 +106,7 @@ async def async_client(
         session_factory=sf,
         blob_store=tmp_blob_store,
         embedding_provider=embedding_provider,
+        duplicate_detection_enabled=False,
     )
     app.state.blob_store = tmp_blob_store
     app.state.pipeline = pipeline

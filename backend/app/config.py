@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     # Upload limits
     MAX_UPLOAD_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MB
 
+    # Curation — memory extraction
+    MEMORY_EXTRACTION_MIN_MESSAGES: int = 12
+    MEMORY_EXTRACTION_TOPIC_SHIFT_THRESHOLD: float = 0.5
+    MEMORY_EXTRACTION_SESSION_BREAK_MINUTES: int = 30
+
+    # Curation — duplicate detection
+    DUPLICATE_NEAR_THRESHOLD: float = 0.92
+    DUPLICATE_MATCH_RATIO: float = 0.5
+    DUPLICATE_DETECTION_ENABLED: bool = True
+
+    # Curation — gap analysis
+    GAP_ANALYSIS_ENABLED: bool = True
+
     @model_validator(mode="after")
     def _require_provider_credentials(self) -> "Settings":
         if self.LLM_PROVIDER == "anthropic":

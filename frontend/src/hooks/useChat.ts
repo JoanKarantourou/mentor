@@ -8,7 +8,9 @@ import {
 } from "@/lib/api/chat";
 import type {
   ConversationDetail,
+  GapAnalysis,
   LocalMessage,
+  MemorySuggestion,
   ModelTier,
   SourceChunk,
   WebSource,
@@ -49,6 +51,8 @@ export function useChat(conversationId: string | null) {
   >(conversationId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [memorySuggestion, setMemorySuggestion] = useState<MemorySuggestion | null>(null);
+  const [memorySuggestionDismissed, setMemorySuggestionDismissed] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -183,6 +187,25 @@ export function useChat(conversationId: string | null) {
                 )
               );
               break;
+            case "gap_analysis":
+              updateMessage(assistantLocalId, {
+                gapAnalysis: {
+                  missing_topic: event.missing_topic,
+                  related_topics_present: event.related_topics_present,
+                  suggested_document_types: event.suggested_document_types,
+                  related_document_ids: event.related_document_ids,
+                } satisfies GapAnalysis,
+              });
+              break;
+            case "memory_suggestion":
+              if (event.should_suggest && !memorySuggestionDismissed) {
+                setMemorySuggestion({
+                  should_suggest: event.should_suggest,
+                  reason: event.reason,
+                  preview_count: event.preview_count,
+                });
+              }
+              break;
             case "error":
               updateMessage(assistantLocalId, {
                 content: `Error: ${event.message}`,
@@ -300,12 +323,19 @@ export function useChat(conversationId: string | null) {
     [sendChat]
   );
 
+  const dismissMemorySuggestion = useCallback(() => {
+    setMemorySuggestion(null);
+    setMemorySuggestionDismissed(true);
+  }, []);
+
   return {
     messages,
     isStreaming,
     conversationId: currentConversationId,
     loading,
     error,
+    memorySuggestion,
+    dismissMemorySuggestion,
     sendMessage: sendChat,
     sendWithWebSearch,
     regenerate,

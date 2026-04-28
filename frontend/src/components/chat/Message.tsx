@@ -61,6 +61,7 @@ export function Message({
       {/* Confidence notices */}
       {message.isLowConfidence && !message.webSearchUsed && (
         <LowConfidenceNotice
+          gapAnalysis={message.gapAnalysis}
           onTryWithWebSearch={
             onTryWithWebSearch
               ? () => onTryWithWebSearch(message.content, "default")

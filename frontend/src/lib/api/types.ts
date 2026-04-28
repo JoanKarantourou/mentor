@@ -11,7 +11,9 @@ export type DocumentStatus =
   | "chunking"
   | "embedding"
   | "indexed"
-  | "failed";
+  | "failed"
+  | "awaiting_user_decision"
+  | "skipped_duplicate";
 
 export type FileCategory = "document" | "code";
 
@@ -43,6 +45,27 @@ export interface ChatRequest {
   enable_web_search: boolean;
 }
 
+export interface GapAnalysis {
+  missing_topic: string;
+  related_topics_present: string[];
+  suggested_document_types: string[];
+  related_document_ids: string[];
+}
+
+export interface MemorySuggestion {
+  should_suggest: boolean;
+  reason: string;
+  preview_count: number;
+}
+
+export interface DuplicateMatch {
+  existing_document_id: string;
+  existing_filename: string;
+  similarity: number;
+  match_type: "exact" | "near_duplicate";
+  matching_chunks: number;
+}
+
 export type ChatEvent =
   | {
       type: "retrieval";
@@ -60,6 +83,8 @@ export type ChatEvent =
       conversation_id: string;
       assistant_message_id: string;
     }
+  | { type: "gap_analysis"; missing_topic: string; related_topics_present: string[]; suggested_document_types: string[]; related_document_ids: string[] }
+  | { type: "memory_suggestion"; should_suggest: boolean; reason: string; preview_count: number }
   | { type: "error"; message: string }
   | { type: "done" };
 
@@ -106,6 +131,8 @@ export interface DocumentListItem {
   file_category: FileCategory;
   detected_language: string | null;
   size_bytes: number;
+  source_type: string;
+  source_conversation_id: string | null;
   created_at: string;
 }
 
@@ -180,4 +207,5 @@ export interface LocalMessage {
   retrievedChunkIds: string[];
   modelUsed?: string;
   createdAt: string;
+  gapAnalysis?: GapAnalysis;
 }
