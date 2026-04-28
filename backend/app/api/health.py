@@ -16,6 +16,7 @@ async def health(request: Request) -> dict:
     vector_index_status = await _check_vector_index()
     embedding_status = await _check_embedding_provider(request)
     llm_status = await _check_llm_provider(request)
+    web_search_status = await _check_web_search_provider(request)
     return {
         "status": "ok",
         "database": db_status,
@@ -23,6 +24,7 @@ async def health(request: Request) -> dict:
         "vector_index": vector_index_status,
         "embedding_provider": embedding_status,
         "llm_provider": llm_status,
+        "web_search_provider": web_search_status,
     }
 
 
@@ -89,6 +91,21 @@ async def _check_llm_provider(request: Request) -> str:
                 system_prompt="Reply with one word.",
                 max_tokens=5,
             )
+        return "ok"
+    except Exception as exc:
+        brief = str(exc)[:120]
+        return f"error: {brief}"
+
+
+async def _check_web_search_provider(request: Request) -> str:
+    provider = getattr(request.app.state, "web_search_provider", None)
+    if provider is None:
+        return "not configured"
+    if provider.identifier == "stub-web-v1":
+        return "stub"
+    try:
+        async with asyncio.timeout(5.0):
+            await provider.search("healthcheck", max_results=1)
         return "ok"
     except Exception as exc:
         brief = str(exc)[:120]

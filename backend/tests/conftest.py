@@ -15,6 +15,7 @@ from app.ingestion.pipeline import IngestionPipeline
 from app.models import Chunk, Conversation, Document, Message  # noqa: F401
 from app.providers.embeddings import StubEmbeddingProvider
 from app.providers.llm import StubLLMProvider
+from app.providers.web_search import StubWebSearchProvider
 from app.storage.local import LocalBlobStore
 
 TEST_DB_URL = os.environ.get(
@@ -100,6 +101,7 @@ async def async_client(
     sf = make_session_factory(test_engine)
     embedding_provider = StubEmbeddingProvider()
     llm_provider = StubLLMProvider()
+    web_search_provider = StubWebSearchProvider()
     pipeline = IngestionPipeline(
         session_factory=sf,
         blob_store=tmp_blob_store,
@@ -110,6 +112,7 @@ async def async_client(
     app.state.session_factory = sf
     app.state.embedding_provider = embedding_provider
     app.state.llm_provider = llm_provider
+    app.state.web_search_provider = web_search_provider
     app.state.chat_config = {
         "top_k": settings.RETRIEVAL_TOP_K,
         "min_top_similarity": settings.RETRIEVAL_MIN_TOP_SIMILARITY,
@@ -117,6 +120,7 @@ async def async_client(
         "avg_window": settings.RETRIEVAL_AVG_WINDOW,
         "max_context_chunks": settings.CHAT_MAX_CONTEXT_CHUNKS,
         "max_output_tokens": settings.CHAT_MAX_OUTPUT_TOKENS,
+        "web_search_max_results": settings.WEB_SEARCH_MAX_RESULTS,
     }
 
     async def _override_session():

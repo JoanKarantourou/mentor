@@ -13,7 +13,7 @@ export default function ConversationPage({
   params: { id: string };
 }) {
   const { id } = params;
-  const { messages, isStreaming, loading, error, sendMessage, regenerate } =
+  const { messages, isStreaming, loading, error, sendMessage, sendWithWebSearch, regenerate } =
     useChat(id);
 
   useEffect(() => {
@@ -22,8 +22,16 @@ export default function ConversationPage({
     }
   }, [error]);
 
-  async function handleSend(text: string, tier: ModelTier) {
-    await sendMessage(text, tier);
+  async function handleSend(text: string, tier: ModelTier, enableWebSearch: boolean) {
+    if (enableWebSearch) {
+      await sendWithWebSearch(text, tier);
+    } else {
+      await sendMessage(text, tier);
+    }
+  }
+
+  async function handleTryWithWebSearch(text: string, tier: ModelTier) {
+    await sendWithWebSearch(text, tier);
   }
 
   return (
@@ -33,6 +41,7 @@ export default function ConversationPage({
         loading={loading}
         isStreaming={isStreaming}
         onRegenerate={regenerate}
+        onTryWithWebSearch={handleTryWithWebSearch}
       />
       <MessageInput onSend={handleSend} disabled={isStreaming} />
     </>

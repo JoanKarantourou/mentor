@@ -73,6 +73,15 @@ Mentor uses a provider abstraction for both LLM and embedding backends. You can 
 | `stub` | **Default** | Returns placeholder responses — no API key needed |
 | `anthropic` | **Recommended** | Direct Anthropic API — Claude Haiku (default) + Sonnet (strong tier) |
 
+### Web search
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| `stub` | **Default** | Deterministic fake results — no key needed, ideal for dev/testing |
+| `tavily` | Supported | Real web search — free tier: 1000 searches/month, sign up at [tavily.com](https://tavily.com) |
+
+Web search is **off by default** and **opt-in per question** via the 🌐 toggle in the chat UI. It is never automatic.
+
 ## Switching to real embeddings
 
 The default `EMBEDDING_PROVIDER=stub` returns random vectors useful for development but produces meaningless similarity results.
@@ -148,12 +157,27 @@ Each response is a stream of SSE events:
 |-------|---------|
 | `retrieval` | chunk IDs retrieved + similarity scores |
 | `confidence` | `{"sufficient": true/false, "reason": "..."}` |
+| `web_search_started` | empty — web search is running |
+| `web_search_results` | list of `{rank, title, url, snippet, published_date, source_domain}` |
 | `token` | one streamed text fragment |
-| `sources` | chunks cited in the response |
+| `sources` | `{sources: [...chunks], web_sources: [...web]}` cited in the response |
 | `message_persisted` | `{"conversation_id": "...", "assistant_message_id": "..."}` |
 | `done` | empty — stream complete |
 
 When confidence is insufficient, Mentor responds with a canned "I don't have enough in the indexed documents" message rather than hallucinating.
+
+### Enable web search (Tavily)
+
+Add to your `.env`:
+
+```env
+WEB_SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=tvly-...
+```
+
+Restart the stack. The 🌐 toggle in the chat UI sends any individual question to Tavily alongside corpus retrieval. Answers cite both `[chunk:id]` (internal) and `[web:N]` (web) sources, rendered in separate sections.
+
+For development or testing without a Tavily key, leave `WEB_SEARCH_PROVIDER=stub` (default).
 
 ### Continue a conversation
 
@@ -186,6 +210,39 @@ watch -n 2 'curl -s http://localhost:8000/admin/embeddings/status | python3 -m j
 
 When `stale_chunks` reaches `0`, all documents are backed by real vectors and semantic search is active.
 
+## Running tests
+
+### Backend + frontend (unit/integration)
+
+```bash
+# Both test suites
+make test
+
+# Backend only (runs inside the backend container)
+make test-backend
+
+# Frontend only
+make test-frontend
+```
+
+### E2E tests
+
+E2E tests run against the full stack. They are slow by design and opt-in:
+
+```bash
+# Brings up docker compose, runs all E2E scenarios, tears down
+RUN_E2E=1 make test
+
+# Or run directly (stack must already be running)
+E2E_SKIP_COMPOSE=1 ./scripts/run-e2e.sh
+```
+
+E2E scenarios:
+1. Upload fixture docs (English + Greek), verify all reach `indexed`
+2. Off-topic questions must all hit the low-confidence path (honesty check)
+3. Web search opt-in with stub provider — correct SSE events, persistence
+4. Multi-turn conversation: 3 messages, fetch all, delete, verify 404
+
 ## Roadmap
 
 - [x] **Stage 1** — Project skeleton: FastAPI + Postgres + pgvector + Docker Compose + Next.js placeholder
@@ -193,8 +250,9 @@ When `stale_chunks` reaches `0`, all documents are backed by real vectors and se
 - [x] **Stage 3** — Chunking + vector search: markdown/code-aware chunking, 1536-dim storage, similarity search
 - [x] **Stage 4** — Real embeddings: OpenAI direct + Azure OpenAI providers, retry, stale detection, health checks, reindex endpoint
 - [x] **Stage 5** — LLM chat: Anthropic provider, grounded RAG with confidence gating, SSE streaming, citation extraction, conversation history
-- [ ] **Stage 6** — Frontend: chat UI, document browser, source citation display
-- [ ] **Stage 7** — Auth: deferred until the core product is solid
+- [x] **Stage 6** — Frontend: chat UI, document browser, source citation display, streaming, source drawers
+- [x] **Stage 7** — Web search (opt-in per question via Tavily/stub) + test hardening (backend 160+, frontend 35+, E2E suite)
+- [ ] **Stage 8** — Auth: deferred until the core product is solid
 
 ## License
 

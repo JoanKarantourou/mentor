@@ -10,7 +10,7 @@ import type { ModelTier } from "@/lib/api/types";
 
 export default function NewChatPage() {
   const router = useRouter();
-  const { messages, isStreaming, conversationId, error, sendMessage, regenerate } =
+  const { messages, isStreaming, conversationId, error, sendMessage, sendWithWebSearch, regenerate } =
     useChat(null);
 
   // Navigate to the conversation page after streaming completes
@@ -26,8 +26,16 @@ export default function NewChatPage() {
     }
   }, [error]);
 
-  async function handleSend(text: string, tier: ModelTier) {
-    await sendMessage(text, tier);
+  async function handleSend(text: string, tier: ModelTier, enableWebSearch: boolean) {
+    if (enableWebSearch) {
+      await sendWithWebSearch(text, tier);
+    } else {
+      await sendMessage(text, tier);
+    }
+  }
+
+  async function handleTryWithWebSearch(text: string, tier: ModelTier) {
+    await sendWithWebSearch(text, tier);
   }
 
   return (
@@ -53,6 +61,7 @@ export default function NewChatPage() {
             loading={false}
             isStreaming={isStreaming}
             onRegenerate={regenerate}
+            onTryWithWebSearch={handleTryWithWebSearch}
           />
           <MessageInput onSend={handleSend} disabled={isStreaming} />
         </>

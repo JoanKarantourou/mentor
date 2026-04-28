@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Message } from "./Message";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { LocalMessage } from "@/lib/api/types";
+import type { LocalMessage, ModelTier } from "@/lib/api/types";
 
 interface MessageListProps {
   messages: LocalMessage[];
   loading: boolean;
   isStreaming: boolean;
   onRegenerate: (serverId: string, localId: string) => void;
+  onTryWithWebSearch?: (text: string, tier: ModelTier) => void;
 }
 
 export function MessageList({
@@ -17,6 +18,7 @@ export function MessageList({
   loading,
   isStreaming,
   onRegenerate,
+  onTryWithWebSearch,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -78,6 +80,7 @@ export function MessageList({
             message={msg}
             isLatest={msg.localId === lastAssistantId}
             onRegenerate={onRegenerate}
+            onTryWithWebSearch={onTryWithWebSearch}
             isStreaming={isStreaming}
           />
         ))}

@@ -47,6 +47,15 @@ describe("uploadDocument", () => {
     expect(result).toEqual(mockResponse);
   });
 
+  it("throws when the server returns 413 (file too large)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("Too Large", { status: 413 })
+    );
+
+    const file = new File(["x"], "big.pdf", { type: "application/pdf" });
+    await expect(uploadDocument(file)).rejects.toThrow("Upload failed (413)");
+  });
+
   it("throws when the server returns an error status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("Too Large", { status: 413 })
@@ -54,5 +63,23 @@ describe("uploadDocument", () => {
 
     const file = new File(["x"], "big.pdf", { type: "application/pdf" });
     await expect(uploadDocument(file)).rejects.toThrow("Upload failed (413)");
+  });
+
+  it("throws on network failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+      new TypeError("Failed to fetch")
+    );
+
+    const file = new File(["content"], "test.md", { type: "text/markdown" });
+    await expect(uploadDocument(file)).rejects.toThrow("Failed to fetch");
+  });
+
+  it("throws on 500 server error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("Internal Server Error", { status: 500 })
+    );
+
+    const file = new File(["content"], "test.md", { type: "text/markdown" });
+    await expect(uploadDocument(file)).rejects.toThrow("Upload failed (500)");
   });
 });

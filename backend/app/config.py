@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -46,6 +48,15 @@ class Settings(BaseSettings):
     AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str | None = None
     AZURE_OPENAI_API_VERSION: str = "2024-02-01"
 
+    # Web search
+    WEB_SEARCH_PROVIDER: Literal["stub", "tavily"] = "stub"
+    TAVILY_API_KEY: SecretStr | None = None
+    TAVILY_SEARCH_DEPTH: Literal["basic", "advanced"] = "basic"
+    WEB_SEARCH_MAX_RESULTS: int = 5
+
+    # Upload limits
+    MAX_UPLOAD_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MB
+
     @model_validator(mode="after")
     def _require_provider_credentials(self) -> "Settings":
         if self.LLM_PROVIDER == "anthropic":
@@ -68,6 +79,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"EMBEDDING_PROVIDER=azure_openai requires: {', '.join(missing)}"
                 )
+        if self.WEB_SEARCH_PROVIDER == "tavily":
+            if self.TAVILY_API_KEY is None:
+                raise ValueError("WEB_SEARCH_PROVIDER=tavily requires: TAVILY_API_KEY")
         return self
 
 

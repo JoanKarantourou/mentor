@@ -27,10 +27,20 @@ export interface SourceChunk {
   score: number;
 }
 
+export interface WebSource {
+  rank: number;
+  title: string;
+  url: string;
+  snippet: string;
+  published_date: string | null;
+  source_domain: string;
+}
+
 export interface ChatRequest {
   message: string;
   conversation_id: string | null;
   model_tier: ModelTier;
+  enable_web_search: boolean;
 }
 
 export type ChatEvent =
@@ -41,8 +51,10 @@ export type ChatEvent =
       avg_similarity: number;
     }
   | { type: "confidence"; sufficient: boolean; reason: string }
+  | { type: "web_search_started" }
+  | { type: "web_search_results"; results: WebSource[] }
   | { type: "token"; text: string }
-  | { type: "sources"; sources: SourceChunk[] }
+  | { type: "sources"; sources: SourceChunk[]; web_sources: WebSource[] }
   | {
       type: "message_persisted";
       conversation_id: string;
@@ -70,6 +82,7 @@ export interface Message {
   input_tokens: number | null;
   output_tokens: number | null;
   low_confidence: boolean;
+  web_search_used: boolean;
   created_at: string;
 }
 
@@ -144,6 +157,7 @@ export interface HealthStatus {
   database: string;
   llm_provider: string;
   embedding_provider: string;
+  web_search_provider?: string;
   vector_index?: string;
 }
 
@@ -158,7 +172,11 @@ export interface LocalMessage {
   content: string;
   isStreaming: boolean;
   isLowConfidence: boolean;
+  webSearchUsed: boolean;
+  webSearchPending: boolean;
+  webSearchResultCount: number;
   sources: SourceChunk[];
+  webSources: WebSource[];
   retrievedChunkIds: string[];
   modelUsed?: string;
   createdAt: string;

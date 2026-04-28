@@ -18,6 +18,8 @@ from app.chat.orchestrator import (
     RetrievalEvent,
     SourcesEvent,
     TokenEvent,
+    WebSearchResultsEvent,
+    WebSearchStartedEvent,
     run_chat_turn,
 )
 from app.db import get_session
@@ -37,6 +39,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: UUID | None = None
     model_tier: str = "default"
+    enable_web_search: bool = False
 
 
 class ConversationListItem(BaseModel):
@@ -60,6 +63,7 @@ class MessageRead(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     low_confidence: bool
+    web_search_used: bool
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -84,6 +88,75 @@ def _sse(event: str, data: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Shared event serializer
+# ---------------------------------------------------------------------------
+
+
+def _serialize_event(event) -> str | None:
+    if isinstance(event, RetrievalEvent):
+        return _sse("retrieval", json.dumps({
+            "chunk_ids": [c.chunk_id for c in event.chunks],
+            "top_similarity": event.top_similarity,
+            "avg_similarity": event.avg_similarity,
+        }))
+    elif isinstance(event, ConfidenceEvent):
+        return _sse("confidence", json.dumps({
+            "sufficient": event.sufficient,
+            "reason": event.reason,
+        }))
+    elif isinstance(event, WebSearchStartedEvent):
+        return _sse("web_search_started", json.dumps({}))
+    elif isinstance(event, WebSearchResultsEvent):
+        return _sse("web_search_results", json.dumps([
+            {
+                "rank": r.rank,
+                "title": r.title,
+                "url": r.url,
+                "snippet": r.snippet,
+                "published_date": r.published_date,
+                "source_domain": r.source_domain,
+            }
+            for r in event.results
+        ]))
+    elif isinstance(event, TokenEvent):
+        return _sse("token", json.dumps(event.text))
+    elif isinstance(event, SourcesEvent):
+        return _sse("sources", json.dumps({
+            "sources": [
+                {
+                    "chunk_id": s.chunk_id,
+                    "document_id": s.document_id,
+                    "filename": s.filename,
+                    "text_preview": s.text_preview,
+                    "score": s.score,
+                }
+                for s in event.sources
+            ],
+            "web_sources": [
+                {
+                    "rank": w.rank,
+                    "title": w.title,
+                    "url": w.url,
+                    "snippet": w.snippet,
+                    "published_date": w.published_date,
+                    "source_domain": w.source_domain,
+                }
+                for w in event.web_sources
+            ],
+        }))
+    elif isinstance(event, MessagePersistedEvent):
+        return _sse("message_persisted", json.dumps({
+            "conversation_id": str(event.conversation_id),
+            "assistant_message_id": str(event.assistant_message_id),
+        }))
+    elif isinstance(event, ErrorEvent):
+        return _sse("error", json.dumps({"message": event.message}))
+    elif isinstance(event, DoneEvent):
+        return _sse("done", "")
+    return None
+
+
+# ---------------------------------------------------------------------------
 # POST /chat
 # ---------------------------------------------------------------------------
 
@@ -92,6 +165,7 @@ def _sse(event: str, data: str) -> str:
 async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
     embedding_provider = request.app.state.embedding_provider
     llm_provider = request.app.state.llm_provider
+    web_search_provider = request.app.state.web_search_provider
     session_factory = request.app.state.session_factory
     cfg = request.app.state.chat_config
 
@@ -99,6 +173,7 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
         user_message=body.message,
         conversation_id=body.conversation_id,
         model_tier=body.model_tier,
+        enable_web_search=body.enable_web_search,
     )
 
     async def event_gen():
@@ -108,41 +183,12 @@ async def chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 session_factory=session_factory,
                 embedding_provider=embedding_provider,
                 llm_provider=llm_provider,
+                web_search_provider=web_search_provider,
                 **cfg,
             ):
-                if isinstance(event, RetrievalEvent):
-                    yield _sse("retrieval", json.dumps({
-                        "chunk_ids": [c.chunk_id for c in event.chunks],
-                        "top_similarity": event.top_similarity,
-                        "avg_similarity": event.avg_similarity,
-                    }))
-                elif isinstance(event, ConfidenceEvent):
-                    yield _sse("confidence", json.dumps({
-                        "sufficient": event.sufficient,
-                        "reason": event.reason,
-                    }))
-                elif isinstance(event, TokenEvent):
-                    yield _sse("token", json.dumps(event.text))
-                elif isinstance(event, SourcesEvent):
-                    yield _sse("sources", json.dumps([
-                        {
-                            "chunk_id": s.chunk_id,
-                            "document_id": s.document_id,
-                            "filename": s.filename,
-                            "text_preview": s.text_preview,
-                            "score": s.score,
-                        }
-                        for s in event.sources
-                    ]))
-                elif isinstance(event, MessagePersistedEvent):
-                    yield _sse("message_persisted", json.dumps({
-                        "conversation_id": str(event.conversation_id),
-                        "assistant_message_id": str(event.assistant_message_id),
-                    }))
-                elif isinstance(event, ErrorEvent):
-                    yield _sse("error", json.dumps({"message": event.message}))
-                elif isinstance(event, DoneEvent):
-                    yield _sse("done", "")
+                serialized = _serialize_event(event)
+                if serialized is not None:
+                    yield serialized
         except Exception as exc:
             logger.exception("Unhandled error in chat stream")
             yield _sse("error", json.dumps({"message": str(exc)}))
@@ -165,9 +211,9 @@ async def regenerate(message_id: UUID, request: Request) -> StreamingResponse:
     session_factory = request.app.state.session_factory
     embedding_provider = request.app.state.embedding_provider
     llm_provider = request.app.state.llm_provider
+    web_search_provider = request.app.state.web_search_provider
     cfg = request.app.state.chat_config
 
-    # Look up the assistant message and its preceding user message
     async with session_factory() as session:
         asst_msg = await session.get(Message, message_id)
         if asst_msg is None or asst_msg.role != "assistant":
@@ -187,9 +233,7 @@ async def regenerate(message_id: UUID, request: Request) -> StreamingResponse:
             raise HTTPException(status_code=404, detail="Preceding user message not found")
         conversation_id = asst_msg.conversation_id
         user_text = user_msg.content
-        asst_index = asst_msg.message_index
 
-    # Delete the old assistant message
     async with session_factory() as session:
         old = await session.get(Message, message_id)
         if old:
@@ -210,41 +254,12 @@ async def regenerate(message_id: UUID, request: Request) -> StreamingResponse:
                 session_factory=session_factory,
                 embedding_provider=embedding_provider,
                 llm_provider=llm_provider,
+                web_search_provider=web_search_provider,
                 **cfg,
             ):
-                if isinstance(event, RetrievalEvent):
-                    yield _sse("retrieval", json.dumps({
-                        "chunk_ids": [c.chunk_id for c in event.chunks],
-                        "top_similarity": event.top_similarity,
-                        "avg_similarity": event.avg_similarity,
-                    }))
-                elif isinstance(event, ConfidenceEvent):
-                    yield _sse("confidence", json.dumps({
-                        "sufficient": event.sufficient,
-                        "reason": event.reason,
-                    }))
-                elif isinstance(event, TokenEvent):
-                    yield _sse("token", json.dumps(event.text))
-                elif isinstance(event, SourcesEvent):
-                    yield _sse("sources", json.dumps([
-                        {
-                            "chunk_id": s.chunk_id,
-                            "document_id": s.document_id,
-                            "filename": s.filename,
-                            "text_preview": s.text_preview,
-                            "score": s.score,
-                        }
-                        for s in event.sources
-                    ]))
-                elif isinstance(event, MessagePersistedEvent):
-                    yield _sse("message_persisted", json.dumps({
-                        "conversation_id": str(event.conversation_id),
-                        "assistant_message_id": str(event.assistant_message_id),
-                    }))
-                elif isinstance(event, ErrorEvent):
-                    yield _sse("error", json.dumps({"message": event.message}))
-                elif isinstance(event, DoneEvent):
-                    yield _sse("done", "")
+                serialized = _serialize_event(event)
+                if serialized is not None:
+                    yield serialized
         except Exception as exc:
             logger.exception("Unhandled error in regenerate stream")
             yield _sse("error", json.dumps({"message": str(exc)}))
@@ -333,6 +348,7 @@ async def get_conversation(
                 input_tokens=m.input_tokens,
                 output_tokens=m.output_tokens,
                 low_confidence=m.low_confidence,
+                web_search_used=m.web_search_used,
                 created_at=m.created_at.isoformat(),
             )
             for m in msgs

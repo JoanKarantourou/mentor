@@ -11,6 +11,7 @@ import type {
   LocalMessage,
   ModelTier,
   SourceChunk,
+  WebSource,
 } from "@/lib/api/types";
 
 function makeLocalId() {
@@ -29,7 +30,11 @@ function convertApiMessages(detail: ConversationDetail): LocalMessage[] {
     content: m.content,
     isStreaming: false,
     isLowConfidence: m.low_confidence,
+    webSearchUsed: m.web_search_used,
+    webSearchPending: false,
+    webSearchResultCount: 0,
     sources: [],
+    webSources: [],
     retrievedChunkIds: m.retrieved_chunk_ids ?? [],
     modelUsed: m.model_used ?? undefined,
     createdAt: m.created_at,
@@ -78,7 +83,7 @@ export function useChat(conversationId: string | null) {
   );
 
   const sendChat = useCallback(
-    async (text: string, modelTier: ModelTier) => {
+    async (text: string, modelTier: ModelTier, enableWebSearch: boolean = false) => {
       if (isStreaming) return;
 
       const userLocalId = makeLocalId();
@@ -90,7 +95,11 @@ export function useChat(conversationId: string | null) {
         content: text,
         isStreaming: false,
         isLowConfidence: false,
+        webSearchUsed: false,
+        webSearchPending: false,
+        webSearchResultCount: 0,
         sources: [],
+        webSources: [],
         retrievedChunkIds: [],
         createdAt: nowIso(),
       };
@@ -101,7 +110,11 @@ export function useChat(conversationId: string | null) {
         content: "",
         isStreaming: true,
         isLowConfidence: false,
+        webSearchUsed: false,
+        webSearchPending: enableWebSearch,
+        webSearchResultCount: 0,
         sources: [],
+        webSources: [],
         retrievedChunkIds: [],
         createdAt: nowIso(),
       };
@@ -115,10 +128,12 @@ export function useChat(conversationId: string | null) {
           message: text,
           conversation_id: currentConversationId,
           model_tier: modelTier,
+          enable_web_search: enableWebSearch,
         });
 
         let retrievedChunkIds: string[] = [];
         let sources: SourceChunk[] = [];
+        let webSources: WebSource[] = [];
         let isLowConf = false;
 
         for await (const event of stream) {
@@ -131,6 +146,17 @@ export function useChat(conversationId: string | null) {
               isLowConf = !event.sufficient;
               updateMessage(assistantLocalId, { isLowConfidence: isLowConf });
               break;
+            case "web_search_started":
+              updateMessage(assistantLocalId, { webSearchPending: true });
+              break;
+            case "web_search_results":
+              updateMessage(assistantLocalId, {
+                webSearchPending: false,
+                webSearchUsed: true,
+                webSearchResultCount: event.results.length,
+                isLowConfidence: false,
+              });
+              break;
             case "token":
               setMessages((prev) =>
                 prev.map((m) =>
@@ -142,7 +168,8 @@ export function useChat(conversationId: string | null) {
               break;
             case "sources":
               sources = event.sources;
-              updateMessage(assistantLocalId, { sources });
+              webSources = event.web_sources;
+              updateMessage(assistantLocalId, { sources, webSources });
               break;
             case "message_persisted":
               setCurrentConversationId(event.conversation_id);
@@ -160,11 +187,12 @@ export function useChat(conversationId: string | null) {
               updateMessage(assistantLocalId, {
                 content: `Error: ${event.message}`,
                 isStreaming: false,
+                webSearchPending: false,
               });
               setError(event.message);
               break;
             case "done":
-              updateMessage(assistantLocalId, { isStreaming: false });
+              updateMessage(assistantLocalId, { isStreaming: false, webSearchPending: false });
               break;
           }
         }
@@ -173,6 +201,7 @@ export function useChat(conversationId: string | null) {
         updateMessage(assistantLocalId, {
           content: `Error: ${msg}`,
           isStreaming: false,
+          webSearchPending: false,
         });
         setError(msg);
       } finally {
@@ -190,7 +219,11 @@ export function useChat(conversationId: string | null) {
         content: "",
         isStreaming: true,
         sources: [],
+        webSources: [],
         isLowConfidence: false,
+        webSearchUsed: false,
+        webSearchPending: false,
+        webSearchResultCount: 0,
       });
       setIsStreaming(true);
       setError(null);
@@ -200,6 +233,17 @@ export function useChat(conversationId: string | null) {
 
         for await (const event of stream) {
           switch (event.type) {
+            case "web_search_started":
+              updateMessage(localId, { webSearchPending: true });
+              break;
+            case "web_search_results":
+              updateMessage(localId, {
+                webSearchPending: false,
+                webSearchUsed: true,
+                webSearchResultCount: event.results.length,
+                isLowConfidence: false,
+              });
+              break;
             case "token":
               setMessages((prev) =>
                 prev.map((m) =>
@@ -210,7 +254,10 @@ export function useChat(conversationId: string | null) {
               );
               break;
             case "sources":
-              updateMessage(localId, { sources: event.sources });
+              updateMessage(localId, {
+                sources: event.sources,
+                webSources: event.web_sources,
+              });
               break;
             case "message_persisted":
               updateMessage(localId, {
@@ -224,11 +271,12 @@ export function useChat(conversationId: string | null) {
               updateMessage(localId, {
                 content: `Error: ${event.message}`,
                 isStreaming: false,
+                webSearchPending: false,
               });
               setError(event.message);
               break;
             case "done":
-              updateMessage(localId, { isStreaming: false });
+              updateMessage(localId, { isStreaming: false, webSearchPending: false });
               break;
           }
         }
@@ -237,6 +285,7 @@ export function useChat(conversationId: string | null) {
         updateMessage(localId, {
           content: `Error: ${msg}`,
           isStreaming: false,
+          webSearchPending: false,
         });
         setError(msg);
       } finally {
@@ -246,6 +295,11 @@ export function useChat(conversationId: string | null) {
     [isStreaming, updateMessage]
   );
 
+  const sendWithWebSearch = useCallback(
+    (text: string, modelTier: ModelTier) => sendChat(text, modelTier, true),
+    [sendChat]
+  );
+
   return {
     messages,
     isStreaming,
@@ -253,6 +307,7 @@ export function useChat(conversationId: string | null) {
     loading,
     error,
     sendMessage: sendChat,
+    sendWithWebSearch,
     regenerate,
   };
 }

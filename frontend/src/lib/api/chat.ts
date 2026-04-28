@@ -15,7 +15,7 @@ interface RawSseEvent {
   data: string;
 }
 
-async function* parseSseStream(
+export async function* parseSseStream(
   body: ReadableStream<Uint8Array>
 ): AsyncGenerator<RawSseEvent> {
   const reader = body.getReader();
@@ -81,14 +81,27 @@ export async function* sendMessage(
         yield { type: "confidence", ...parsed };
         break;
       }
+      case "web_search_started": {
+        yield { type: "web_search_started" };
+        break;
+      }
+      case "web_search_results": {
+        const results = JSON.parse(data);
+        yield { type: "web_search_results", results };
+        break;
+      }
       case "token": {
         const text = JSON.parse(data) as string;
         yield { type: "token", text };
         break;
       }
       case "sources": {
-        const sources = JSON.parse(data);
-        yield { type: "sources", sources };
+        const parsed = JSON.parse(data);
+        yield {
+          type: "sources",
+          sources: parsed.sources ?? parsed,
+          web_sources: parsed.web_sources ?? [],
+        };
         break;
       }
       case "message_persisted": {
@@ -139,14 +152,27 @@ export async function* regenerateMessage(
         yield { type: "confidence", ...parsed };
         break;
       }
+      case "web_search_started": {
+        yield { type: "web_search_started" };
+        break;
+      }
+      case "web_search_results": {
+        const results = JSON.parse(data);
+        yield { type: "web_search_results", results };
+        break;
+      }
       case "token": {
         const text = JSON.parse(data) as string;
         yield { type: "token", text };
         break;
       }
       case "sources": {
-        const sources = JSON.parse(data);
-        yield { type: "sources", sources };
+        const parsed = JSON.parse(data);
+        yield {
+          type: "sources",
+          sources: parsed.sources ?? parsed,
+          web_sources: parsed.web_sources ?? [],
+        };
         break;
       }
       case "message_persisted": {

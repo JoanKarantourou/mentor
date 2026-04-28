@@ -12,6 +12,7 @@ from app.api.schemas import (
     DocumentRead,
     UploadResponse,
 )
+from app.config import settings
 from app.db import get_session
 from app.models.chunk import Chunk
 from app.models.document import Document
@@ -30,6 +31,13 @@ async def upload_document(
     pipeline = request.app.state.pipeline
 
     data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(data) > settings.MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {len(data)} bytes exceeds limit of {settings.MAX_UPLOAD_SIZE_BYTES} bytes",
+        )
     doc_id = uuid4()
     blob_key = f"documents/{doc_id}/{file.filename}"
     await blob_store.put(blob_key, data, file.content_type or "application/octet-stream")

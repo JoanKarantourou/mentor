@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
@@ -46,6 +46,18 @@ class Message(SQLModel, table=True):
         sa_column=Column(Integer, nullable=True),
     )
     low_confidence: bool = Field(default=False)
+    web_search_used: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
+    web_search_results: list | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
+    web_search_provider: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True), nullable=False),

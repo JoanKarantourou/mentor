@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, RefreshCw } from "lucide-react";
+import { Check, Copy, Globe, RefreshCw } from "lucide-react";
 import { Markdown } from "@/components/shared/Markdown";
-import { LowConfidenceNotice } from "./LowConfidenceNotice";
+import { LowConfidenceNotice, WebSearchUsedNotice } from "./LowConfidenceNotice";
 import { MessageSources } from "./MessageSources";
 import { StreamingIndicator } from "./StreamingIndicator";
-import type { LocalMessage } from "@/lib/api/types";
+import type { LocalMessage, ModelTier } from "@/lib/api/types";
 
 interface MessageProps {
   message: LocalMessage;
   isLatest: boolean;
   onRegenerate?: (serverId: string, localId: string) => void;
+  onTryWithWebSearch?: (text: string, tier: ModelTier) => void;
   isStreaming: boolean;
 }
 
@@ -19,6 +20,7 @@ export function Message({
   message,
   isLatest,
   onRegenerate,
+  onTryWithWebSearch,
   isStreaming,
 }: MessageProps) {
   const [copied, setCopied] = useState(false);
@@ -41,9 +43,34 @@ export function Message({
   }
 
   // Assistant message
+  const showWebSearchIndicator = message.webSearchPending || (message.webSearchUsed && message.isStreaming);
+  const showWebUsedNotice = message.webSearchUsed && !message.isStreaming && message.isLowConfidence === false;
+
   return (
     <div className="group animate-fade-in">
-      {message.isLowConfidence && <LowConfidenceNotice />}
+      {/* Web search pending / found indicator */}
+      {showWebSearchIndicator && (
+        <div className="flex items-center gap-1.5 text-xs text-emerald-400 mb-2">
+          <Globe className="h-3.5 w-3.5 animate-pulse" />
+          {message.webSearchPending
+            ? "Searching the web..."
+            : `Found ${message.webSearchResultCount} web result${message.webSearchResultCount !== 1 ? "s" : ""}`}
+        </div>
+      )}
+
+      {/* Confidence notices */}
+      {message.isLowConfidence && !message.webSearchUsed && (
+        <LowConfidenceNotice
+          onTryWithWebSearch={
+            onTryWithWebSearch
+              ? () => onTryWithWebSearch(message.content, "default")
+              : undefined
+          }
+        />
+      )}
+      {showWebUsedNotice && (
+        <WebSearchUsedNotice resultCount={message.webSearchResultCount} />
+      )}
 
       <div className="text-sm text-zinc-100">
         {message.isStreaming && message.content === "" ? (
@@ -83,10 +110,24 @@ export function Message({
               {message.modelUsed.split(":")[1] ?? message.modelUsed}
             </span>
           )}
+
+          {/* Web search badge */}
+          {message.webSearchUsed && (
+            <span
+              title="This answer used web search"
+              className="ml-1 flex items-center gap-0.5 text-xs text-emerald-600"
+            >
+              <Globe className="h-3 w-3" />
+            </span>
+          )}
         </div>
       )}
 
-      <MessageSources sources={message.sources} defaultOpen={isLatest} />
+      <MessageSources
+        sources={message.sources}
+        webSources={message.webSources}
+        defaultOpen={isLatest}
+      />
     </div>
   );
 }

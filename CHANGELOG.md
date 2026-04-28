@@ -1,5 +1,67 @@
 # Changelog
 
+## Stage 7 — Web search + test hardening
+
+### Web search (opt-in per question)
+
+Added an opt-in web search escape hatch. When the user toggles the 🌐 button for a specific message, Mentor performs a Tavily search, combines corpus and web context with visual separation, and streams an answer that cites both sources distinctly.
+
+**Web search flow:**
+- `WEB_SEARCH_PROVIDER=stub` (default) — deterministic fake results, no key needed
+- `WEB_SEARCH_PROVIDER=tavily` — real results via Tavily (free tier: 1000/month, sign up at tavily.com)
+- Web search is **off by default** and **opt-in per question** — never automatic, never sticky across messages
+- Toggle resets to "off" after every send
+
+**Backend:**
+- `WebSearchProvider` ABC + `StubWebSearchProvider` + `TavilyWebSearchProvider`
+- `TavilyWebSearchProvider` calls `api.tavily.com/search` directly with tenacity retry (3 attempts, retries on ConnectError, TimeoutException, and 429/5xx)
+- `ChatTurnInput` extended with `enable_web_search: bool = False`
+- Four orchestrator paths: corpus-only (confident), corpus+web (confident+search), web-only (insufficient+search), refusal (insufficient, no search)
+- New SSE events: `web_search_started`, `web_search_results`; `sources` event extended with `web_sources` array
+- `<cited_web>1,2</cited_web>` tag parsed alongside `<cited_chunks>`; citation parser extended to return both
+- `messages` table extended with `web_search_used`, `web_search_results` (JSONB), `web_search_provider`
+- Health endpoint checks web search provider (returns `"stub"` for stub, live probe for Tavily)
+
+**Frontend:**
+- Web search toggle pill in `MessageInput` — resets to off after each send
+- "🌐 Searching the web..." → "🌐 Found N web results" streaming indicator
+- Sources section split into corpus ("📁 From your documents") and web ("🌐 From the web") subsections
+- `WebSourceCard` — shows favicon + domain + title + snippet + published date, links to URL in new tab
+- `LowConfidenceNotice` gains optional "Try with web search" button
+- "Not in your documents — searched the web instead" lighter notice when web fills the gap
+- 🌐 badge on assistant messages that used web search
+
+### Test hardening
+
+**Backend tests** (target: 160+):
+- `test_web_search_providers.py` — 15 new tests: stub determinism, Tavily HTTP mock, retry/exhaustion, factory
+- `test_web_search_orchestrator.py` — 10 new tests: all 4 orchestrator paths, persistence, failure fallback, edge cases
+- `test_chat_edge_cases.py` — 10 new tests: SSE events, conversation continuity, regenerate edge cases, DB persistence
+- `test_ingestion_edge_cases.py` — 8 new tests: 0-byte file, size limit, deceptive extension, Greek text, concurrent uploads, nested headings, Haskell/Lua fallback
+- `test_search_edge_cases.py` — 4 new tests: empty corpus, deleted docs, exact match self-consistency, filter zero matches
+- 50 MB file size limit enforced in `POST /documents/upload` via `MAX_UPLOAD_SIZE_BYTES` config
+
+**Frontend tests** (target: 35+):
+- `test_chat.test.ts` — 4 new SSE parser tests: web search events, mixed order, abrupt stream end, empty stream
+- `MessageSources.test.tsx` — 9 tests: empty, corpus-only, web-only, mixed, toggle
+- `SourceCard.test.tsx` — 10 tests: corpus card (score %, click, truncation) + web card (link, favicon, date)
+- `LowConfidenceNotice.test.tsx` — 4 new tests: try-with-web button, `WebSearchUsedNotice` component
+- `MessageInput.test.tsx` — 7 tests: toggle reset on send, web search flag, model tier
+- `Message.test.tsx` — 5 new tests: pending indicator, result count, web badge, "Try with web search" integration
+- `documents.test.ts` — 3 new tests: network failure, 500 error
+
+**E2E tests** (`e2e/`):
+- `test_full_ingestion.py` — upload 3+ fixture docs (English + Greek), verify all reach `indexed`
+- `test_chat_flows.py` — 4 scenarios: grounded answer, honesty (5 off-topic questions), web search opt-in, conversation continuity + delete
+- `test_resilience.py` — health check, delete removes from search, nonsense query returns empty
+- `e2e/conftest.py` — session-scoped docker compose fixture (skippable via `E2E_SKIP_COMPOSE=1`)
+- `Makefile` — `make test` (backend + frontend), `RUN_E2E=1 make test` adds E2E
+- `scripts/run-e2e.sh` — standalone E2E runner
+
+## Stage 6 — Frontend chat UI
+
+Added a full Next.js chat interface with streaming, source drawers, document management, and dark theme. Real-time message streaming via SSE, cited source previews with expandable drawers, model tier selection (Haiku/Sonnet), regenerate button, conversation list with titles, document upload with drag-and-drop, and status polling.
+
 ## Stage 5 — LLM chat and generation
 
 Added full retrieval-augmented generation with grounding as a hard constraint. Mentor retrieves relevant chunks, assesses confidence via top and average similarity thresholds, and either streams a grounded answer from Claude or returns an honest refusal — never from general knowledge.

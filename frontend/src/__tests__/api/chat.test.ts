@@ -1,47 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
+import { parseSseStream } from "@/lib/api/chat";
 
 // ---------------------------------------------------------------------------
-// SSE parser — extracted for testing
+// SSE parser helpers
 // ---------------------------------------------------------------------------
 
 interface RawSseEvent {
   eventType: string;
   data: string;
-}
-
-async function* parseSseStream(
-  body: ReadableStream<Uint8Array>
-): AsyncGenerator<RawSseEvent> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-
-    for (const part of parts) {
-      if (!part.trim()) continue;
-
-      let eventType = "message";
-      let data = "";
-
-      for (const line of part.split("\n")) {
-        if (line.startsWith("event:")) {
-          eventType = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          data = line.slice(5).trim();
-        }
-      }
-
-      yield { eventType, data };
-    }
-  }
 }
 
 function makeStream(chunks: string[]): ReadableStream<Uint8Array> {
@@ -66,6 +32,8 @@ async function collect(
   return events;
 }
 
+// ---------------------------------------------------------------------------
+// Standard SSE parsing
 // ---------------------------------------------------------------------------
 
 describe("SSE parser", () => {
@@ -124,12 +92,74 @@ describe("SSE parser", () => {
 
   it("handles event split across many small chunks", async () => {
     const full = 'event: confidence\ndata: {"sufficient":false}\n\n';
-    const chunks = full.split("").map((c) => c); // one byte per chunk
+    const chunks = full.split("").map((c) => c);
     const body = makeStream(chunks);
 
     const events = await collect(parseSseStream(body));
     expect(events).toHaveLength(1);
     expect(events[0].eventType).toBe("confidence");
     expect(events[0].data).toBe('{"sufficient":false}');
+  });
+
+  // Web search event parsing
+  it("parses web_search_started event", async () => {
+    const body = makeStream([
+      "event: web_search_started\ndata: {}\n\n",
+    ]);
+
+    const events = await collect(parseSseStream(body));
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("web_search_started");
+  });
+
+  it("parses web_search_results event", async () => {
+    const results = JSON.stringify([
+      { rank: 0, title: "Test", url: "https://example.com", snippet: "snippet", published_date: null, source_domain: "example.com" },
+    ]);
+    const body = makeStream([
+      `event: web_search_results\ndata: ${results}\n\n`,
+    ]);
+
+    const events = await collect(parseSseStream(body));
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("web_search_results");
+    const parsed = JSON.parse(events[0].data);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].rank).toBe(0);
+  });
+
+  it("handles mixed event types including web search", async () => {
+    const body = makeStream([
+      'event: retrieval\ndata: {"chunk_ids":[],"top_similarity":0.1,"avg_similarity":0.1}\n\n',
+      'event: confidence\ndata: {"sufficient":false,"reason":"low"}\n\n',
+      "event: web_search_started\ndata: {}\n\n",
+      'event: web_search_results\ndata: []\n\n',
+      'event: token\ndata: "answer"\n\n',
+      "event: done\ndata:\n\n",
+    ]);
+
+    const events = await collect(parseSseStream(body));
+    expect(events).toHaveLength(6);
+    const types = events.map((e) => e.eventType);
+    expect(types).toContain("web_search_started");
+    expect(types).toContain("web_search_results");
+  });
+
+  it("handles stream ending abruptly mid-event", async () => {
+    // Stream ends without the closing \n\n
+    const body = makeStream([
+      'event: token\ndata: "partial"',
+    ]);
+
+    // Should not throw — partial event is buffered and lost, but no crash
+    const events = await collect(parseSseStream(body));
+    // The partial event isn't emitted (no \n\n terminator)
+    expect(events).toHaveLength(0);
+  });
+
+  it("handles empty stream", async () => {
+    const body = makeStream([]);
+    const events = await collect(parseSseStream(body));
+    expect(events).toHaveLength(0);
   });
 });

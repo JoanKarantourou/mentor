@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Globe, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ModelTier } from "@/lib/api/types";
 
 interface MessageInputProps {
-  onSend: (text: string, tier: ModelTier) => void;
+  onSend: (text: string, tier: ModelTier, enableWebSearch: boolean) => void;
   disabled: boolean;
 }
 
 export function MessageInput({ onSend, disabled }: MessageInputProps) {
   const [text, setText] = useState("");
   const [tier, setTier] = useState<ModelTier>("default");
+  const [webSearch, setWebSearch] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-resize textarea
@@ -23,7 +24,7 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
 
-  // Ctrl/Cmd+K → focus input (new chat shortcut handled at page level)
+  // Ctrl/Cmd+K → focus input
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -45,15 +46,16 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
   function submit() {
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed, tier);
+    onSend(trimmed, tier, webSearch);
     setText("");
+    setWebSearch(false); // reset after every send — opt-in per question
   }
 
   return (
     <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">
       <div className="max-w-2xl mx-auto">
-        {/* Model tier toggle */}
-        <div className="flex items-center gap-2 mb-2">
+        {/* Controls row */}
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-xs text-zinc-600">Model:</span>
           <button
             onClick={() => setTier("default")}
@@ -75,6 +77,22 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
           >
             Sonnet · stronger
           </button>
+
+          <span className="text-zinc-700 mx-1">·</span>
+
+          <button
+            onClick={() => setWebSearch((v) => !v)}
+            title="Allow Mentor to search the web for this question. Off by default."
+            data-testid="web-search-toggle"
+            className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full transition-colors ${
+              webSearch
+                ? "bg-emerald-900 text-emerald-200"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            <Globe className="h-3 w-3" />
+            Web search: {webSearch ? "on" : "off"}
+          </button>
         </div>
 
         {/* Input row */}
@@ -93,6 +111,7 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
             onClick={submit}
             disabled={disabled || !text.trim()}
             size="icon"
+            aria-label="Send"
             className="h-10 w-10 flex-shrink-0 rounded-xl"
           >
             <Send className="h-4 w-4" />

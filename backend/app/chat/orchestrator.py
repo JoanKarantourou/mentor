@@ -10,10 +10,12 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.chat.citations import parse_cited_chunks
+from app.chat.citations import parse_citations
 from app.chat.confidence import ConfidenceAssessment, RetrievedChunk, assess_confidence
 from app.chat.prompts import (
     GROUNDED_SYSTEM_PROMPT,
+    GROUNDED_SYSTEM_PROMPT_WITH_WEB,
+    build_combined_context,
     build_context_block,
     build_low_confidence_response,
 )
@@ -22,6 +24,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.providers.embeddings import EmbeddingProvider
 from app.providers.llm import ChatMessage, LLMProvider
+from app.providers.web_search import WebSearchProvider, WebSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,16 @@ class ConfidenceEvent:
 
 
 @dataclass
+class WebSearchStartedEvent:
+    pass
+
+
+@dataclass
+class WebSearchResultsEvent:
+    results: list[WebSearchResult]
+
+
+@dataclass
 class TokenEvent:
     text: str
 
@@ -61,8 +74,19 @@ class SourceInfo:
 
 
 @dataclass
+class WebSourceInfo:
+    rank: int
+    title: str
+    url: str
+    snippet: str
+    published_date: str | None
+    source_domain: str
+
+
+@dataclass
 class SourcesEvent:
     sources: list[SourceInfo]
+    web_sources: list[WebSourceInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -84,6 +108,8 @@ class DoneEvent:
 ChatEvent = (
     RetrievalEvent
     | ConfidenceEvent
+    | WebSearchStartedEvent
+    | WebSearchResultsEvent
     | TokenEvent
     | SourcesEvent
     | MessagePersistedEvent
@@ -103,6 +129,7 @@ class ChatTurnInput:
     conversation_id: UUID | None = None
     user_id: str = "dev"
     model_tier: Literal["default", "strong"] = "default"
+    enable_web_search: bool = False
     _skip_user_persist: bool = field(default=False, repr=False)
 
 
@@ -190,12 +217,14 @@ async def run_chat_turn(
     session_factory: Callable[[], AsyncSession],
     embedding_provider: EmbeddingProvider,
     llm_provider: LLMProvider,
+    web_search_provider: WebSearchProvider | None = None,
     top_k: int = 8,
     min_top_similarity: float = 0.25,
     min_avg_similarity: float = 0.20,
     avg_window: int = 5,
     max_context_chunks: int = 8,
     max_output_tokens: int = 2048,
+    web_search_max_results: int = 5,
 ) -> AsyncGenerator[ChatEvent, None]:
     # 1. Get or create conversation
     async with session_factory() as session:
@@ -212,18 +241,23 @@ async def run_chat_turn(
 
     # 2. Persist user message
     if not input._skip_user_persist:
-        msg_count = await _count_messages(conversation_id, session_factory)
-        async with session_factory() as session:
-            user_msg = Message(
-                conversation_id=conversation_id,
-                role="user",
-                content=input.user_message,
-                message_index=msg_count,
-            )
-            session.add(user_msg)
-            await session.commit()
-            await session.refresh(user_msg)
-            next_index = msg_count + 1
+        try:
+            msg_count = await _count_messages(conversation_id, session_factory)
+            async with session_factory() as session:
+                user_msg = Message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=input.user_message,
+                    message_index=msg_count,
+                )
+                session.add(user_msg)
+                await session.commit()
+                await session.refresh(user_msg)
+                next_index = msg_count + 1
+        except Exception as exc:
+            yield ErrorEvent(message=f"Failed to persist user message: {exc}")
+            yield DoneEvent()
+            return
     else:
         next_index = await _count_messages(conversation_id, session_factory)
 
@@ -254,8 +288,21 @@ async def run_chat_turn(
         avg_similarity=assessment.avg_similarity,
     )
 
-    # 5. Low confidence path
-    if not assessment.sufficient:
+    # 5. Optionally run web search (regardless of corpus confidence)
+    web_results: list[WebSearchResult] = []
+    if input.enable_web_search and web_search_provider is not None:
+        yield WebSearchStartedEvent()
+        try:
+            web_results = await web_search_provider.search(
+                input.user_message, max_results=web_search_max_results
+            )
+        except Exception as exc:
+            logger.warning("Web search failed, continuing without it: %s", exc)
+            web_results = []
+        yield WebSearchResultsEvent(results=web_results)
+
+    # 6. Low confidence path (only when web search is not providing fallback)
+    if not assessment.sufficient and not web_results:
         response_text = build_low_confidence_response(assessment.reason)
         yield TokenEvent(text=response_text)
 
@@ -280,12 +327,18 @@ async def run_chat_turn(
         yield DoneEvent()
         return
 
-    # 6. Stream generation
-    context_chunks = chunks[:max_context_chunks]
-    context_block = build_context_block(context_chunks)
-    system_prompt = f"{GROUNDED_SYSTEM_PROMPT}\n\n{context_block}"
+    # 7. Build context (corpus only, web only, or combined)
+    context_chunks = chunks[:max_context_chunks] if assessment.sufficient else []
+    if web_results:
+        context_block = build_combined_context(context_chunks, web_results)
+        system_prompt = f"{GROUNDED_SYSTEM_PROMPT_WITH_WEB}\n\n{context_block}"
+    else:
+        context_block = build_context_block(context_chunks)
+        system_prompt = f"{GROUNDED_SYSTEM_PROMPT}\n\n{context_block}"
+
     model = llm_provider.model_for_tier(input.model_tier)
 
+    # 8. Stream generation
     collected: list[str] = []
     try:
         async for token in llm_provider.stream(
@@ -302,12 +355,24 @@ async def run_chat_turn(
         yield DoneEvent()
         return
 
-    # 7. Post-stream: parse citations, persist
+    # 9. Post-stream: parse citations, persist
     full_text = "".join(collected)
-    cleaned_text, cited_ids = parse_cited_chunks(full_text)
+    cleaned_text, cited_ids, cited_web_indices = parse_citations(full_text)
 
     retrieved_ids = [c.chunk_id for c in context_chunks]
     final_cited_ids = cited_ids if cited_ids else retrieved_ids
+
+    web_results_as_dicts = [
+        {
+            "title": r.title,
+            "url": r.url,
+            "snippet": r.snippet,
+            "published_date": r.published_date,
+            "source_domain": r.source_domain,
+            "rank": r.rank,
+        }
+        for r in web_results
+    ] if web_results else None
 
     async with session_factory() as session:
         asst_msg = Message(
@@ -318,10 +383,12 @@ async def run_chat_turn(
             retrieved_chunk_ids=retrieved_ids,
             cited_chunk_ids=final_cited_ids,
             model_used=model or llm_provider.identifier,
+            web_search_used=bool(web_results),
+            web_search_results=web_results_as_dicts,
+            web_search_provider=web_search_provider.identifier if web_results and web_search_provider else None,
         )
         session.add(asst_msg)
 
-        # touch updated_at on conversation
         conv = await session.get(Conversation, conversation_id)
         if conv is not None:
             from datetime import UTC, datetime
@@ -331,13 +398,13 @@ async def run_chat_turn(
         await session.commit()
         await session.refresh(asst_msg)
 
-    # 8. Title generation for new conversations (background)
+    # 10. Title generation for new conversations (background)
     if is_new_conversation:
         asyncio.create_task(
             _save_title(conversation_id, input.user_message, llm_provider, session_factory)
         )
 
-    # 9. Emit sources
+    # 11. Emit sources
     cited_set = set(final_cited_ids)
     sources = [
         SourceInfo(
@@ -350,7 +417,22 @@ async def run_chat_turn(
         for c in context_chunks
         if c.chunk_id in cited_set
     ]
-    yield SourcesEvent(sources=sources)
+
+    cited_web_set = set(cited_web_indices)
+    web_sources = [
+        WebSourceInfo(
+            rank=r.rank,
+            title=r.title,
+            url=r.url,
+            snippet=r.snippet,
+            published_date=r.published_date,
+            source_domain=r.source_domain,
+        )
+        for r in web_results
+        if (r.rank + 1) in cited_web_set or not cited_web_indices
+    ]
+
+    yield SourcesEvent(sources=sources, web_sources=web_sources)
     yield MessagePersistedEvent(
         conversation_id=conversation_id,
         assistant_message_id=asst_msg.id,
