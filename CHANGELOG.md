@@ -1,5 +1,31 @@
 # Changelog
 
+## Documentation pass — positioning and contributor docs
+
+Rewrote `README.md` for three audiences (skimmer, deployer, contributor). Added `CONFIGURATION.md` (full settings reference), `DEPLOYMENT.md` (local, VPS, and cloud-managed recipes with production checklist), `ARCHITECTURE.md` (data flow diagrams, provider abstraction walkthrough, database schema, curation feature overview, testing guide), and `CONTRIBUTING.md`. Polished `.env.example` with grouped sections and one-line comments on every setting. Added GitHub issue and PR templates. Added `examples/sample-corpus/` with seven fixture files for a first-run demo, plus `examples/queries.md` with suggested queries. Added `*.log` to `.gitignore`.
+
+## Stage 8 — Curation features
+
+### Memory extraction
+
+Conversations can be summarised into durable Markdown notes. The orchestrator checks for trigger conditions (conversation length, topic shift, session gap) after each assistant message and emits a `memory_suggestion` SSE event when they are met. Confirming in the UI calls `POST /curation/conversations/{id}/extract-memory`, which runs a structured LLM extraction and saves the result as a document with `source_type=memory`.
+
+**Triggers:** `long_conversation` (>= `MEMORY_EXTRACTION_MIN_MESSAGES`), `topic_shift` (cosine similarity of adjacent message embeddings drops below threshold), `session_break` (gap between messages exceeds `MEMORY_EXTRACTION_SESSION_BREAK_MINUTES`).
+
+### Duplicate detection
+
+When a document reaches `indexed` status, its chunk embeddings are compared against all existing chunk embeddings. If more than `DUPLICATE_MATCH_RATIO` of the chunks exceed `DUPLICATE_NEAR_THRESHOLD` cosine similarity with another document's chunks, the document is flagged in `documents.duplicate_check` (JSONB). Configurable and disableable via env. Results surfaced in the documents list UI.
+
+### Gap analysis
+
+When the orchestrator takes the refusal path (path 4 — corpus insufficient, no web search), it calls `analyze_gap()` with the rejected query and the top retrieved chunks. The LLM returns a structured JSON response identifying the missing topic, related topics present, and suggested document types. Emitted as a `gap_analysis` SSE event and rendered in the low-confidence notice in the UI.
+
+### Curation API
+
+- `POST /curation/conversations/{id}/extract-memory` — extract and save memory note
+- `GET /curation/documents/{id}/duplicate-check` — retrieve duplicate check result
+- `POST /curation/documents/{id}/duplicate-check` — trigger duplicate check manually
+
 ## Stage 7 — Web search + test hardening
 
 ### Web search (opt-in per question)
